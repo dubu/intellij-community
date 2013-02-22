@@ -37,6 +37,7 @@ import com.intellij.openapi.editor.colors.EditorColorsManager;
 import com.intellij.openapi.editor.colors.EditorColorsScheme;
 import com.intellij.openapi.editor.colors.impl.DelegateColorScheme;
 import com.intellij.openapi.editor.event.*;
+import com.intellij.openapi.editor.ex.DocumentEx;
 import com.intellij.openapi.editor.ex.EditorEx;
 import com.intellij.openapi.editor.ex.FocusChangeListener;
 import com.intellij.openapi.editor.ex.RangeHighlighterEx;
@@ -57,9 +58,6 @@ import com.intellij.openapi.util.text.StringUtil;
 import com.intellij.openapi.vfs.VirtualFile;
 import com.intellij.psi.PsiFile;
 import com.intellij.psi.PsiManager;
-import com.intellij.psi.impl.PsiDocumentManagerImpl;
-import com.intellij.psi.impl.PsiManagerEx;
-import com.intellij.psi.impl.file.impl.FileManager;
 import com.intellij.psi.impl.source.tree.injected.InjectedLanguageUtil;
 import com.intellij.testFramework.LightVirtualFile;
 import com.intellij.ui.JBColor;
@@ -392,28 +390,25 @@ public class LanguageConsoleImpl implements Disposable, TypeSafeDataProvider {
     offsets[i] = 0;
     final StringBuilder sb = new StringBuilder();
     for (final Pair<String, TextAttributes> pair : attributedText) {
-      final String str = StringUtil.convertLineSeparators(pair.getFirst());
-      final int lastOffset = offsets[i];
-      offsets[++i] = lastOffset + str.length();
-      sb.append(str);
+      sb.append(StringUtil.convertLineSeparators(pair.getFirst()));
+      offsets[++i] = sb.length();
     }
-    LOG.debug("printToHistory(): text processed");
-    final Document history = myHistoryViewer.getDocument();
-    final MarkupModel markupModel = DocumentMarkupModel.forDocument(history, myProject, true);
+    final DocumentEx history = myHistoryViewer.getDocument();
     final int oldHistoryLength = history.getTextLength();
     appendToHistoryDocument(history, sb.toString());
-    if ((oldHistoryLength + offsets[i]) != history.getTextLength()) {
-      assert false : "Last offset - " + offsets[i] + " history length: old " + oldHistoryLength + ", new - " + history.getTextLength()
-        + ", history - " + history;
-    }
-    LOG.debug("printToHistory(): text added");
+    assert oldHistoryLength + offsets[i] == history.getTextLength()
+      : "unexpected history length " + oldHistoryLength + " " + offsets[i] + " " + history.getTextLength();
+    LOG.debug("printToHistory(): text processed");
+    final MarkupModel markupModel = DocumentMarkupModel.forDocument(history, myProject, true);
     i = 0;
     for (final Pair<String, TextAttributes> pair : attributedText) {
-      markupModel.addRangeHighlighter(oldHistoryLength + offsets[i],
-                                      oldHistoryLength + offsets[i+1],
-                                      HighlighterLayer.SYNTAX,
-                                      pair.getSecond(),
-                                      HighlighterTargetArea.EXACT_RANGE);
+      markupModel.addRangeHighlighter(
+        oldHistoryLength + offsets[i],
+        oldHistoryLength + offsets[i+1],
+        HighlighterLayer.SYNTAX,
+        pair.getSecond(),
+        HighlighterTargetArea.EXACT_RANGE
+      );
       ++i;
     }
     LOG.debug("printToHistory(): markup added");
@@ -656,9 +651,6 @@ public class LanguageConsoleImpl implements Disposable, TypeSafeDataProvider {
 
   public void setLanguage(Language language) {
     myVirtualFile.setLanguage(language);
-    // setViewProvider() call is required otherwise psiFile will stay the same!
-    FileManager fileManager = ((PsiManagerEx)PsiManager.getInstance(myProject)).getFileManager();
-    fileManager.setViewProvider(myVirtualFile, fileManager.createFileViewProvider(myVirtualFile, true));
     reparsePsiFile();
   }
 
@@ -738,7 +730,6 @@ public class LanguageConsoleImpl implements Disposable, TypeSafeDataProvider {
     myVirtualFile.setContent(myEditorDocument, myEditorDocument.getText(), false);
     FileContentUtil.reparseFiles(myProject, Collections.<VirtualFile>singletonList(myVirtualFile), false);
     myFile = ObjectUtils.assertNotNull(PsiManager.getInstance(myProject).findFile(myVirtualFile));
-    PsiDocumentManagerImpl.cachePsi(myEditorDocument, myFile);
   }
 
   private class MyLayout extends AbstractLayoutManager {

@@ -95,7 +95,8 @@ public abstract class GradleToolWindowPanel extends SimpleToolWindowPanel {
       @Override public void onPreferLocalGradleDistributionToWrapperChange(boolean preferLocalToWrapper) { refreshAll(); }
       @Override public void onGradleHomeChange(@Nullable String oldPath, @Nullable String newPath) { refreshAll(); }
       @Override public void onServiceDirectoryPathChange(@Nullable String oldPath, @Nullable String newPath) { refreshAll(); }
-      
+      @Override public void onUseAutoImportChange(boolean oldValue, boolean newValue) { refreshAll(); }
+
       private void refreshAll() {
         if (myInBulk) {
           myRefresh = true;
@@ -165,7 +166,7 @@ public abstract class GradleToolWindowPanel extends SimpleToolWindowPanel {
    */
   public void update() {
     final GradleSettings settings = GradleSettings.getInstance(myProject);
-    String cardToShow = settings.getLinkedProjectPath() == null ? NON_LINKED_CARD_NAME : CONTENT_CARD_NAME;
+    String cardToShow = StringUtil.isEmpty(settings.getLinkedProjectPath()) ? NON_LINKED_CARD_NAME : CONTENT_CARD_NAME;
     myLayout.show(myContent, cardToShow);
     boolean showToolbar = cardToShow != NON_LINKED_CARD_NAME;
     for (JComponent component : getToolbarControls()) {

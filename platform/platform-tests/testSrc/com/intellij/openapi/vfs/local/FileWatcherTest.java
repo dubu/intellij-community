@@ -21,6 +21,7 @@ import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.util.Ref;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.io.FileUtil;
+import com.intellij.openapi.util.io.FileUtilRt;
 import com.intellij.openapi.util.io.IoTestUtil;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.impl.local.FileWatcher;
@@ -76,7 +77,7 @@ public class FileWatcherTest extends PlatformLangTestCase {
   };
   private final Object myWaiter = new Object();
   private int myTimeout = NATIVE_PROCESS_DELAY;
-  private final List<VFileEvent> myEvents = ContainerUtil.createLockFreeCopyOnWriteList();
+  private final List<VFileEvent> myEvents = new ArrayList<VFileEvent>();
 
   @Override
   protected void setUp() throws Exception {
@@ -100,7 +101,9 @@ public class FileWatcherTest extends PlatformLangTestCase {
     myConnection.subscribe(VirtualFileManager.VFS_CHANGES, new BulkFileListener.Adapter() {
       @Override
       public void after(@NotNull List<? extends VFileEvent> events) {
-        myEvents.addAll(events);
+        synchronized (myEvents) {
+          myEvents.addAll(events);
+        }
       }
     });
 
@@ -288,11 +291,11 @@ public class FileWatcherTest extends PlatformLangTestCase {
 
   public void testDirectoryOverlapping() throws Exception {
     final File topDir = FileUtil.createTempDirectory("top.", null);
-    final File fileInTopDir = new File(topDir, "file1.txt"); FileUtil.createIfNotExists(fileInTopDir);
+    final File fileInTopDir = new File(topDir, "file1.txt"); FileUtilRt.createIfNotExists(fileInTopDir);
     final File subDir = new File(topDir, "sub");  FileUtil.createDirectory(subDir);
-    final File fileInSubDir = new File(subDir, "file2.txt"); FileUtil.createIfNotExists(fileInSubDir);
+    final File fileInSubDir = new File(subDir, "file2.txt"); FileUtilRt.createIfNotExists(fileInSubDir);
     final File sideDir = FileUtil.createTempDirectory("side.", null);
-    final File fileInSideDir = new File(sideDir, "file3.txt"); FileUtil.createIfNotExists(fileInSideDir);
+    final File fileInSideDir = new File(sideDir, "file3.txt"); FileUtilRt.createIfNotExists(fileInSideDir);
     refresh(topDir);
     refresh(sideDir);
 
@@ -581,7 +584,7 @@ public class FileWatcherTest extends PlatformLangTestCase {
   @NotNull
   private LocalFileSystem.WatchRequest watch(final File watchFile, final boolean recursive) {
     final Ref<LocalFileSystem.WatchRequest> request = Ref.create();
-    getEvents(new Runnable() {
+    getEvents("events to add watch "+watchFile, new Runnable() {
       @Override
       public void run() {
         request.set(myFileSystem.addRootToWatch(watchFile.getAbsolutePath(), recursive));
@@ -593,7 +596,7 @@ public class FileWatcherTest extends PlatformLangTestCase {
   }
 
   private void unwatch(final LocalFileSystem.WatchRequest... requests) {
-    getEvents(new Runnable() {
+    getEvents("events to stop watching", new Runnable() {
       @Override
       public void run() {
         myFileSystem.removeWatchedRoots(Arrays.asList(requests));
@@ -631,7 +634,7 @@ public class FileWatcherTest extends PlatformLangTestCase {
   }
 
   private void assertEvent(final Class<? extends VFileEvent> type, final String... paths) {
-    final List<VFileEvent> events = getEvents(null);
+    final List<VFileEvent> events = getEvents(type+"",null);
     assertEquals(events.toString(), paths.length, events.size());
 
     final Set<String> pathSet = ContainerUtil.map2Set(paths, new Function<String, String>() {
@@ -651,8 +654,8 @@ public class FileWatcherTest extends PlatformLangTestCase {
     }
   }
 
-  private List<VFileEvent> getEvents(@Nullable final Runnable action) {
-    LOG.debug("** waiting...");
+  private List<VFileEvent> getEvents(String msg, @Nullable final Runnable action) {
+    LOG.debug("** waiting for " + msg + "...");
     myAccept = true;
 
     if (action != null) {
@@ -670,9 +673,13 @@ public class FileWatcherTest extends PlatformLangTestCase {
       LOG.warn(e);
     }
 
+    LOG.debug("** waited for " + timeout);
     myFileSystem.refresh(false);
-    final ArrayList<VFileEvent> result = new ArrayList<VFileEvent>(myEvents);
-    myEvents.clear();
+    final ArrayList<VFileEvent> result;
+    synchronized (myEvents) {
+      result = new ArrayList<VFileEvent>(myEvents);
+      myEvents.clear();
+    }
     LOG.debug("** events: " + result.size());
     return result;
   }

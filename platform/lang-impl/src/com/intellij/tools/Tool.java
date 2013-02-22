@@ -22,6 +22,7 @@ import com.intellij.execution.configurations.GeneralCommandLine;
 import com.intellij.execution.executors.DefaultRunExecutor;
 import com.intellij.execution.process.OSProcessHandler;
 import com.intellij.execution.runners.ExecutionEnvironment;
+import com.intellij.execution.runners.ExecutionEnvironmentBuilder;
 import com.intellij.execution.runners.ProgramRunner;
 import com.intellij.execution.util.ExecutionErrorDialog;
 import com.intellij.ide.macro.Macro;
@@ -249,7 +250,7 @@ public class Tool implements SchemeElement {
   }
 
   public String getActionId() {
-    StringBuilder name = new StringBuilder(ACTION_ID_PREFIX);
+    StringBuilder name = new StringBuilder(getActionIdPrefix());
     if (myGroup != null) {
       name.append(myGroup);
       name.append('_');
@@ -260,7 +261,7 @@ public class Tool implements SchemeElement {
     return name.toString();
   }
 
-  public void execute(AnActionEvent event, DataContext dataContext) {
+  public void execute(AnActionEvent event, DataContext dataContext, long executionId) {
     final Project project = PlatformDataKeys.PROJECT.getData(dataContext);
     if (project == null) {
       return;
@@ -272,7 +273,9 @@ public class Tool implements SchemeElement {
         final ProgramRunner runner = RunnerRegistry.getInstance().getRunner(DefaultRunExecutor.EXECUTOR_ID, profile);
         assert runner != null;
 
-        runner.execute(new DefaultRunExecutor(), new ExecutionEnvironment(profile, project, null, null, null));
+        ExecutionEnvironment executionEnvironment = new ExecutionEnvironmentBuilder().setRunProfile(profile).setProject(project).build();
+        executionEnvironment.setExecutionId(executionId);
+        runner.execute(new DefaultRunExecutor(), executionEnvironment);
       }
       else {
         GeneralCommandLine commandLine = createCommandLine(dataContext);
@@ -342,5 +345,9 @@ public class Tool implements SchemeElement {
   @Override
   public String toString() {
     return myGroup + ": " + myName;
+  }
+
+  public String getActionIdPrefix() {
+    return ACTION_ID_PREFIX;
   }
 }

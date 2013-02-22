@@ -41,6 +41,7 @@ import com.intellij.openapi.project.DumbModeAction;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.project.ProjectManager;
 import com.intellij.openapi.project.ProjectManagerListener;
+import com.intellij.openapi.ui.MessageType;
 import com.intellij.openapi.ui.Messages;
 import com.intellij.openapi.util.Key;
 import com.intellij.openapi.util.TextRange;
@@ -80,6 +81,7 @@ public class CompilerTask extends Task.Backgroundable {
   private final String myContentName;
   private final boolean myHeadlessMode;
   private final boolean myForceAsyncExecution;
+  private final boolean myWaitForPreviousSession;
   private int myErrorCount = 0;
   private int myWarningCount = 0;
   private boolean myMessagesAutoActivated = false;
@@ -89,11 +91,12 @@ public class CompilerTask extends Task.Backgroundable {
   private final AtomicBoolean myMessageViewWasPrepared = new AtomicBoolean(false);
   private Runnable myRestartWork;
 
-  public CompilerTask(@NotNull Project project, String contentName, final boolean headlessMode, boolean forceAsync) {
+  public CompilerTask(@NotNull Project project, String contentName, final boolean headlessMode, boolean forceAsync, boolean waitForPreviousSession) {
     super(project, contentName);
     myContentName = contentName;
     myHeadlessMode = headlessMode;
     myForceAsyncExecution = forceAsync;
+    myWaitForPreviousSession = waitForPreviousSession;
   }
 
   public void setContentIdKey(Key<Key<?>> contentIdKey) {
@@ -135,16 +138,15 @@ public class CompilerTask extends Task.Backgroundable {
     try {
 
       try {
-        final Application app = ApplicationManager.getApplication();
         while (!acquired) {
-          acquired = semaphore.tryAcquire(500, TimeUnit.MILLISECONDS);
+          acquired = semaphore.tryAcquire(300, TimeUnit.MILLISECONDS);
+          if (!acquired && !myWaitForPreviousSession) {
+            return;
+          }
           if (indicator.isCanceled()) {
             // give up obtaining the semaphore,
             // let compile work begin in order to stop gracefuly on cancel event
             break;
-          }
-          if (app.isDispatchThread()) {
-            UIUtil.dispatchAllInvocationEvents();
           }
         }
       }
@@ -208,6 +210,20 @@ public class CompilerTask extends Task.Backgroundable {
           closeUI();
         }
         stopAppIconProgress();
+
+        Runnable runnable = new Runnable() {
+          public void run() {
+            if (myProject == null || myProject.isDisposed())
+              return;
+            NotificationInfo notificationInfo = getNotificationInfo();
+            if (notificationInfo != null && !myMessagesAutoActivated && (myErrorCount > 0 || (myWarningCount > 0 && !ErrorTreeViewConfiguration.getInstance(myProject).isHideWarnings()))) {
+              MessageType messageType = myErrorCount > 0 ? MessageType.ERROR : myWarningCount > 0 ? MessageType.WARNING : MessageType.INFO;
+              ToolWindowManager.getInstance(myProject).notifyByBalloon(ToolWindowId.MESSAGES_WINDOW, messageType,
+                                                                       getNotificationInfo().getNotificationText(), null, null);
+            }
+          }
+        };
+        ApplicationManager.getApplication().invokeLater(runnable);
       }
 
       private void stopAppIconProgress() {
@@ -318,7 +334,6 @@ public class CompilerTask extends Task.Backgroundable {
             (CompilerMessageCategory.WARNING.equals(category) && !ErrorTreeViewConfiguration.getInstance(myProject).isHideWarnings())
           );
         if (shouldAutoActivate) {
-          myMessagesAutoActivated = true;
           activateMessageView();
         }
       }
@@ -443,7 +458,7 @@ public class CompilerTask extends Task.Backgroundable {
       if (myErrorTreeView != null) {
         final ToolWindow tw = ToolWindowManager.getInstance(myProject).getToolWindow(ToolWindowId.MESSAGES_WINDOW);
         if (tw != null) {
-          tw.activate(null, false);
+          myMessagesAutoActivated = tw.activate(null, false, false, false);
         }
       }
     }

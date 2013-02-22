@@ -35,7 +35,7 @@ public class DefaultLanguageHighlighterColors {
     TextAttributesKey.createTextAttributesKey("DEFAULT_KEYWORD");
   public final static TextAttributesKey STRING =
     TextAttributesKey.createTextAttributesKey("DEFAULT_STRING", HighlighterColors.TEXT);
-  public final static TextAttributesKey BLOCk_COMMENT =
+  public final static TextAttributesKey BLOCK_COMMENT =
     TextAttributesKey.createTextAttributesKey("DEFAULT_BLOCK_COMMENT");
   public final static TextAttributesKey LINE_COMMENT =
     TextAttributesKey.createTextAttributesKey("DEFAULT_LINE_COMMENT");
@@ -102,4 +102,11 @@ public class DefaultLanguageHighlighterColors {
 
   public final static TextAttributesKey METADATA =
     TextAttributesKey.createTextAttributesKey("DEFAULT_METADATA", HighlighterColors.TEXT);
+  
+  public final static TextAttributesKey MARKUP_TAG =
+    TextAttributesKey.createTextAttributesKey("DEFAULT_TAG", HighlighterColors.TEXT);
+  public final static TextAttributesKey MARKUP_ATTRIBUTE =
+    TextAttributesKey.createTextAttributesKey("DEFAULT_ATTRIBUTE", IDENTIFIER);
+  public final static TextAttributesKey MARKUP_ENTITY =
+    TextAttributesKey.createTextAttributesKey("DEFAULT_ENTITY", IDENTIFIER);
 }

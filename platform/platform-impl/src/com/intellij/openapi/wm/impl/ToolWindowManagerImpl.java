@@ -565,7 +565,7 @@ public final class ToolWindowManagerImpl extends ToolWindowManagerEx implements 
   }
 
   /**
-   * This is helper method. It delegated its fuctionality to the WindowManager.
+   * This is helper method. It delegated its functionality to the WindowManager.
    * Before delegating it fires state changed.
    */
   public void execute(final ArrayList<FinalizableCommand> commandList) {
@@ -987,6 +987,14 @@ public final class ToolWindowManagerImpl extends ToolWindowManagerEx implements 
             focusToolWinowByDefault(id);
           }
         }
+      }
+    }
+    //todo[kb] it's just a temporary solution due a number of focus issues in JDK 7
+    if (SystemInfo.isJavaVersionAtLeast("1.7")) {
+      if (hasOpenEditorFiles()) {
+        activateEditorComponentImpl(getSplittersFromFocus(), commandList, false);
+      } else {
+        focusToolWinowByDefault(id);
       }
     }
 

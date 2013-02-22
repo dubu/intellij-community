@@ -36,11 +36,12 @@ import com.intellij.packageDependencies.DependencyValidationManager;
 import com.intellij.profile.DefaultProjectProfileManager;
 import com.intellij.profile.Profile;
 import com.intellij.psi.PsiElement;
+import com.intellij.psi.search.scope.packageSet.NamedScopeManager;
+import com.intellij.psi.search.scope.packageSet.NamedScopesHolder;
 import com.intellij.util.ui.UIUtil;
 import org.jdom.Element;
 import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
 
 import java.util.HashSet;
 import java.util.Map;
@@ -63,10 +64,13 @@ import java.util.concurrent.ConcurrentHashMap;
 public class InspectionProjectProfileManager extends DefaultProjectProfileManager implements SeverityProvider, ProjectComponent, PersistentStateComponent<Element> {
   private final Map<String, InspectionProfileWrapper>  myName2Profile = new ConcurrentHashMap<String, InspectionProfileWrapper>();
   private final SeverityRegistrar mySeverityRegistrar;
+  private final NamedScopeManager myLocalScopesHolder;
   private TogglePopupHintsPanel myTogglePopupHintsPanel;
+  private NamedScopesHolder.ScopeListener myScopeListener;
 
-  public InspectionProjectProfileManager(final Project project, InspectionProfileManager inspectionProfileManager, DependencyValidationManager holder) {
+  public InspectionProjectProfileManager(final Project project, InspectionProfileManager inspectionProfileManager, DependencyValidationManager holder, NamedScopeManager localScopesHolder) {
     super(project, inspectionProfileManager, holder);
+    myLocalScopesHolder = localScopesHolder;
     mySeverityRegistrar = new SeverityRegistrar();
   }
 
@@ -117,8 +121,8 @@ public class InspectionProjectProfileManager extends DefaultProjectProfileManage
     return myName2Profile.containsKey(getInspectionProfile().getName());
   }
 
-  @Nullable
-  public InspectionProfileWrapper getProfileWrapper(){
+  @NotNull
+  public synchronized InspectionProfileWrapper getProfileWrapper(){
     final InspectionProfile profile = getInspectionProfile();
     final String profileName = profile.getName();
     if (!myName2Profile.containsKey(profileName)){
@@ -195,6 +199,16 @@ public class InspectionProjectProfileManager extends DefaultProjectProfileManage
         } else {
           app.executeOnPooledThread(initInspectionProfilesRunnable);
         }
+        myScopeListener = new NamedScopesHolder.ScopeListener() {
+          @Override
+          public void scopesChanged() {
+            for (Profile profile : getProfiles()) {
+              ((InspectionProfile)profile).scopesChanged();
+            }
+          }
+        };
+        myHolder.addScopeListener(myScopeListener);
+        myLocalScopesHolder.addScopeListener(myScopeListener);
       }
     });
   }
@@ -224,6 +238,8 @@ public class InspectionProjectProfileManager extends DefaultProjectProfileManage
       app.executeOnPooledThread(cleanupInspectionProfilesRunnable);
     }
     HighlightingSettingsPerFile.getInstance(myProject).cleanProfileSettings();
+    myHolder.removeScopeListener(myScopeListener);
+    myLocalScopesHolder.removeScopeListener(myScopeListener);
   }
 
   @Override

@@ -88,8 +88,12 @@ public class GrKeywordAndDeclarationHighlighter extends TextEditorHighlightingPa
         }
       }
 
-      private void addInfo(PsiElement element, final TextAttributesKey attribute) {
-        result.add(HighlightInfo.createHighlightInfo(INFORMATION, element, null, attribute));
+      private void addInfo(@NotNull PsiElement element, @NotNull TextAttributesKey attribute) {
+        HighlightInfo.Builder builder = HighlightInfo.newHighlightInfo(INFORMATION).range(element);
+        HighlightInfo info = builder.needsUpdateOnTyping(false).textAttributes(attribute).create();
+        if (info != null) {
+          result.add(info);
+        }
       }
     });
     toHighlight = result;

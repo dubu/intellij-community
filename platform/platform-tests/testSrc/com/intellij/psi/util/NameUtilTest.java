@@ -257,6 +257,7 @@ public class NameUtilTest extends UsefulTestCase {
     assertMatches("*f", "reformatCode");
     assertDoesntMatch("*fc", "reformatCode");
     assertDoesntMatch("*sTC", "LazyClassTypeConstructor");
+    assertDoesntMatch("*Icon", "LEADING_CONSTRUCTOR");
   }
 
   public void testMiddleMatchingUnderscore() {
@@ -477,6 +478,15 @@ public class NameUtilTest extends UsefulTestCase {
     assertPreference("*ea", "LEADING", "NORTH_EAST", NameUtil.MatchingCaseSensitivity.NONE);
   }
 
+  public void testPreferNoWordSkipping() {
+    assertPreference("CBP", "CustomProcessBP", "ComputationBatchProcess", NameUtil.MatchingCaseSensitivity.NONE);
+  }
+
+  public void testWordLengthDoesNotMatter() {
+    MinusculeMatcher matcher = new MinusculeMatcher("PropComp", NameUtil.MatchingCaseSensitivity.NONE);
+    assertEquals(matcher.matchingDegree("PropertyComponent"), matcher.matchingDegree("PropertiesComponent"));
+  }
+
   public void testPreferEarlyMatching() {
     assertPreference(" path", "getAbsolutePath", "findPath");
   }
@@ -561,4 +571,16 @@ public class NameUtilTest extends UsefulTestCase {
       }
     }).cpuBound().assertTiming();
   }
+
+  public void testRepeatedLetterPerformance() {
+    PlatformTestUtil.startPerformanceTest("Matcher is exponential", 300, new ThrowableRunnable() {
+      @Override
+      public void run() {
+        String big = StringUtil.repeat("Aaaaaa", 50);
+        assertMatches("aaaaaaaaaaaaaaaaaaaaaaaa", big);
+        assertDoesntMatch("aaaaaaaaaaaaaaaaaaaaaaaab", big);
+      }
+    }).cpuBound().assertTiming();
+  }
+
 }

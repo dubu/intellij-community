@@ -16,10 +16,13 @@
 package org.jetbrains.plugins.javaFX.fxml.descriptors;
 
 import com.intellij.openapi.diagnostic.Logger;
-import com.intellij.psi.PsiClass;
-import com.intellij.psi.PsiField;
-import com.intellij.psi.PsiModifier;
+import com.intellij.psi.*;
+import com.intellij.psi.xml.XmlAttribute;
+import com.intellij.psi.xml.XmlAttributeValue;
+import com.intellij.psi.xml.XmlElement;
+import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.javaFX.fxml.FxmlConstants;
+import org.jetbrains.plugins.javaFX.fxml.JavaFxPsiUtil;
 
 import java.util.List;
 
@@ -66,5 +69,26 @@ public class JavaFxDefaultAttributeDescriptor extends JavaFxPropertyAttributeDes
 
   protected boolean isConstant(PsiField field) {
     return field.hasModifierProperty(PsiModifier.STATIC) && field.hasModifierProperty(PsiModifier.FINAL) && field.hasModifierProperty(PsiModifier.PUBLIC);
+  }
+
+  @Nullable
+  @Override
+  public String validateValue(XmlElement context, String value) {
+    if (context instanceof XmlAttributeValue) {
+      final PsiElement parent = context.getParent();
+      if (parent instanceof XmlAttribute) {
+        final XmlAttribute attribute = (XmlAttribute)parent;
+        if (FxmlConstants.FX_VALUE.equals(attribute.getName())) {
+          final PsiClass tagClass = JavaFxPsiUtil.getTagClass((XmlAttributeValue)context);
+          if (tagClass != null) {
+            final PsiMethod method = JavaFxPsiUtil.findValueOfMethod(tagClass);
+            if (method == null) {
+              return "Unable to coerce '" + value + "' to " + tagClass.getQualifiedName() + ".";
+            }
+          }
+        }
+      }
+    }
+    return super.validateValue(context, value);
   }
 }

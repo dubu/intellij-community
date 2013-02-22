@@ -142,7 +142,7 @@ public class PsiMethodReferenceUtil {
       final QualifierResolveResult qualifierResolveResult = getQualifierResolveResult(methodReferenceExpression);
       final PsiElement resolve = result.getElement();
       if (resolve instanceof PsiMethod) {
-        final MethodSignature signature1 = method.getSignature(resolveResult.getSubstitutor());
+        final MethodSignature signature1 = method.getSignature(LambdaUtil.getSubstitutor(method, resolveResult));
         PsiSubstitutor subst = PsiSubstitutor.EMPTY;
         subst = subst.putAll(qualifierResolveResult.getSubstitutor());
         subst = subst.putAll(result.getSubstitutor());
@@ -189,10 +189,15 @@ public class PsiMethodReferenceUtil {
     if (receiverClass != null && isReceiverType(receiverClass, containingClass)) {
       LOG.assertTrue(containingClass != null);
       return resolveResult.getSubstitutor().equals(psiSubstitutor) ||
-             PsiUtil.isRawSubstitutor(containingClass, psiSubstitutor) ||
-             PsiUtil.isRawSubstitutor(receiverClass, resolveResult.getSubstitutor());
+             emptyOrRaw(containingClass, psiSubstitutor) ||
+             emptyOrRaw(receiverClass, resolveResult.getSubstitutor());
     } 
     return false;
+  }
+
+  private static boolean emptyOrRaw(PsiClass containingClass, PsiSubstitutor psiSubstitutor) {
+    return PsiUtil.isRawSubstitutor(containingClass, psiSubstitutor) ||
+           (!containingClass.hasTypeParameters() && psiSubstitutor.getSubstitutionMap().isEmpty());
   }
 
   public static boolean isReceiverType(PsiType functionalInterfaceType, PsiClass containingClass, @Nullable PsiMethod referencedMethod) {

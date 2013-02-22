@@ -35,6 +35,7 @@ import com.intellij.ui.table.TableView;
 import com.intellij.util.ui.*;
 import org.jetbrains.annotations.Nls;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import javax.swing.*;
 import javax.swing.border.CompoundBorder;
@@ -76,7 +77,9 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
   private final @NotNull Map<String, VcsRootChecker> myCheckers;
   private JCheckBox myShowVcsRootErrorNotification;
   private JCheckBox myShowChangedRecursively;
-  private VcsLimitHistoryConfigurable myLimitHistory;
+  private final VcsLimitHistoryConfigurable myLimitHistory;
+  private final VcsUpdateInfoScopeFilterConfigurable myScopeFilterConfig;
+  private VcsCommitMessageMarginConfigurable myCommitMessageMarginConfigurable;
 
   private class MyDirectoryRenderer extends ColoredTableCellRenderer {
     private final Project myProject;
@@ -177,6 +180,23 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
           }
         };
       }
+
+      @Nullable
+      @Override
+      public String getMaxStringValue() {
+        String maxString = null;
+        for (String name : myAllVcss.keySet()) {
+          if (maxString == null || maxString.length() < name.length()) {
+            maxString = name;
+          }
+        }
+        return maxString;
+      }
+
+      @Override
+      public int getAdditionalWidth() {
+        return DEFAULT_HGAP;
+      }
     };
 
   public VcsDirectoryConfigurationPanel(final Project project) {
@@ -194,6 +214,8 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
 
     myDirectoryMappingTable = new TableView<VcsDirectoryMapping>();
     myBaseRevisionTexts = new JCheckBox("Store on shelf base revision texts for files under DVCS");
+    myLimitHistory = new VcsLimitHistoryConfigurable(myProject);
+    myScopeFilterConfig = new VcsUpdateInfoScopeFilterConfigurable(myProject, myVcsConfiguration);
 
     myCheckers = new HashMap<String, VcsRootChecker>();
     updateRootCheckers();
@@ -261,8 +283,10 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
 
     myRecentlyChangedConfigurable.reset();
     myLimitHistory.reset();
+    myScopeFilterConfig.reset();
     myBaseRevisionTexts.setSelected(myVcsConfiguration.INCLUDE_TEXT_INTO_SHELF);
     myShowChangedRecursively.setSelected(myVcsConfiguration.SHOW_DIRTY_RECURSIVELY);
+    myCommitMessageMarginConfigurable.reset();
   }
 
   public static DefaultComboBoxModel buildVcsWrappersModel(final Project project) {
@@ -271,14 +295,6 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
     result[0] = VcsDescriptor.createFictive();
     System.arraycopy(vcsDescriptors, 0, result, 1, vcsDescriptors.length);
     return new DefaultComboBoxModel(result);
-  }
-
-  protected String getLabelText() {
-    return null;
-  }
-
-  protected JButton[] createButtons() {
-    return new JButton[]{};
   }
 
   private void addMapping() {
@@ -330,8 +346,6 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
   }
 
   protected JComponent createMainComponent() {
-    myLimitHistory = new VcsLimitHistoryConfigurable(myProject);
-
     JPanel panel = new JPanel(new GridBagLayout());
     GridBag gb = new GridBag()
       .setDefaultInsets(new Insets(0, 0, DEFAULT_VGAP, DEFAULT_HGAP))
@@ -346,6 +360,8 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
     panel.add(createStoreBaseRevisionOption(), gb.nextLine().next());
     panel.add(createShowChangedOption(), gb.nextLine().next());
     panel.add(createShowVcsRootErrorNotificationOption(), gb.nextLine().next());
+    panel.add(myScopeFilterConfig.createComponent(), gb.nextLine().next());
+    panel.add(createUseCommitMessageRightMargin(), gb.nextLine().next().fillCellHorizontally());
 
     return panel;
   }
@@ -418,6 +434,9 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
         errorPanel.add(vcsRootErrorLabel);
       }
     }
+    if (errorPanel.getComponentCount() == 0) {
+      pane.setVisible(false);
+    }
     pane.setMinimumSize(new Dimension(-1, calcMinHeight(errorPanel, DEFAULT_HEIGHT)));
     pane.setMaximumSize(new Dimension(-1, DEFAULT_HEIGHT));
     return pane;
@@ -462,6 +481,11 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
     return myShowVcsRootErrorNotification;
   }
 
+  private JComponent createUseCommitMessageRightMargin() {
+    myCommitMessageMarginConfigurable =  new VcsCommitMessageMarginConfigurable(myProject);
+    return myCommitMessageMarginConfigurable.createComponent();
+  }
+
   private JComponent createShowRecursivelyDirtyOption() {
     myShowChangedRecursively = new JCheckBox("Show directories with changed descendants", myVcsConfiguration.SHOW_DIRTY_RECURSIVELY);
     return myShowChangedRecursively;
@@ -475,20 +499,26 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
     myVcsManager.setDirectoryMappings(myModel.getItems());
     myRecentlyChangedConfigurable.apply();
     myLimitHistory.apply();
+    myScopeFilterConfig.apply();
     myVcsConfiguration.INCLUDE_TEXT_INTO_SHELF = myBaseRevisionTexts.isSelected();
     myVcsConfiguration.SHOW_VCS_ERROR_NOTIFICATIONS = myShowVcsRootErrorNotification.isSelected();
     myVcsConfiguration.SHOW_DIRTY_RECURSIVELY = myShowChangedRecursively.isSelected();
+    myCommitMessageMarginConfigurable.apply();
     initializeModel();
   }
 
   public boolean isModified() {
     if (myRecentlyChangedConfigurable.isModified()) return true;
     if (myLimitHistory.isModified()) return true;
+    if (myScopeFilterConfig.isModified()) return true;
     if (myVcsConfiguration.INCLUDE_TEXT_INTO_SHELF != myBaseRevisionTexts.isSelected()) return true;
     if (myVcsConfiguration.SHOW_VCS_ERROR_NOTIFICATIONS != myShowVcsRootErrorNotification.isSelected()) {
       return true;
     }
     if (myVcsConfiguration.SHOW_DIRTY_RECURSIVELY != myShowChangedRecursively.isSelected()) {
+      return true;
+    }
+    if (myCommitMessageMarginConfigurable.isModified()) {
       return true;
     }
     return !myModel.getItems().equals(myVcsManager.getDirectoryMappings());
@@ -535,6 +565,8 @@ public class VcsDirectoryConfigurationPanel extends JPanel implements Configurab
   }
 
   public void disposeUIResources() {
+    myLimitHistory.disposeUIResources();
+    myScopeFilterConfig.disposeUIResources();
   }
 
   private static class VcsRootErrorLabel extends JPanel {

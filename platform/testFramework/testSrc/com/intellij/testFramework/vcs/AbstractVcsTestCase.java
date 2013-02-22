@@ -102,6 +102,8 @@ public abstract class AbstractVcsTestCase {
       myProjectFixture.setUp();
       myProject = myProjectFixture.getProject();
 
+      projectCreated();
+
       if (myInitChangeListManager) {
         ((ProjectComponent) ChangeListManager.getInstance(myProject)).projectOpened();
       }
@@ -121,6 +123,9 @@ public abstract class AbstractVcsTestCase {
         System.clearProperty(key);
       }
     }
+  }
+
+  protected void projectCreated() {
   }
 
   protected void activateVCS(final String vcsName) {
@@ -187,16 +192,24 @@ public abstract class AbstractVcsTestCase {
     new WriteCommandAction.Simple(myProject) {
       @Override
       protected void run() throws Throwable {
-        try {
-          final VirtualFile[] children = dir.getChildren();
-          for (VirtualFile child : children) {
-            if (filter != null && filter.process(child)) {
-              child.delete(AbstractVcsTestCase.this);
+        for (int i = 0; i < 5; i++) {
+          try {
+            final VirtualFile[] children = dir.getChildren();
+            for (VirtualFile child : children) {
+              if (filter != null && filter.process(child)) {
+                child.delete(AbstractVcsTestCase.this);
+              }
             }
+            return;
           }
-        }
-        catch (IOException e) {
-          throw new RuntimeException(e);
+          catch (IOException e) {
+            try {
+              Thread.sleep(50);
+            } catch (InterruptedException e1) {
+              //
+            }
+            continue;
+          }
         }
       }
     }.execute();

@@ -119,6 +119,8 @@ import static org.jetbrains.jps.api.CmdlineRemoteProto.Message.ControllerMessage
  *         Date: 9/6/11
  */
 public class BuildManager implements ApplicationComponent{
+  public static final Key<Boolean> ALLOW_AUTOMAKE = Key.create("_allow_automake_when_process_is_active_");
+
   private static final Logger LOG = Logger.getInstance("#com.intellij.compiler.server.BuildManager");
   private static final String COMPILER_PROCESS_JDK_PROPERTY = "compiler.process.jdk";
   private static final String SYSTEM_ROOT = "compile-server";
@@ -466,7 +468,7 @@ public class BuildManager implements ApplicationComponent{
   private static boolean hasRunningProcess(Project project) {
     for (RunContentDescriptor descriptor : ExecutionManager.getInstance(project).getContentManager().getAllDescriptors()) {
       final ProcessHandler handler = descriptor.getProcessHandler();
-      if (handler != null && !handler.isProcessTerminated()) { // active process
+      if (handler != null && !handler.isProcessTerminated() && !ALLOW_AUTOMAKE.get(handler, Boolean.FALSE)) { // active process
         return true;
       }
     }
@@ -731,22 +733,23 @@ public class BuildManager implements ApplicationComponent{
 
       final Set<Sdk> candidates = new HashSet<Sdk>();
       final Sdk defaultSdk = ProjectRootManager.getInstance(project).getProjectSdk();
-      if (defaultSdk != null && defaultSdk.getSdkType() instanceof JavaSdk) {
+      if (defaultSdk != null && defaultSdk.getSdkType() instanceof JavaSdkType) {
         candidates.add(defaultSdk);
       }
 
       for (Module module : ModuleManager.getInstance(project).getModules()) {
         final Sdk sdk = ModuleRootManager.getInstance(module).getSdk();
-        if (sdk != null && sdk.getSdkType() instanceof JavaSdk) {
+        if (sdk != null && sdk.getSdkType() instanceof JavaSdkType) {
           candidates.add(sdk);
         }
       }
 
       // now select the latest version from the sdks that are used in the project, but not older than the internal sdk version
+      final JavaSdk javaSdkType = JavaSdk.getInstance();
       for (Sdk candidate : candidates) {
         final String vs = candidate.getVersionString();
         if (vs != null) {
-          final JavaSdkVersion candidateVersion = ((JavaSdk)candidate.getSdkType()).getVersion(vs);
+          final JavaSdkVersion candidateVersion = javaSdkType.getVersion(vs);
           if (candidateVersion != null) {
             final int candidateMinorVersion = getMinorVersion(vs);
             if (projectJdk == null) {
@@ -780,7 +783,7 @@ public class BuildManager implements ApplicationComponent{
         compilerPath = ClasspathBootstrap.getResourcePath(systemCompiler.getClass());
       }
       else {
-        compilerPath = ((JavaSdk)projectJdk.getSdkType()).getToolsPath(projectJdk);
+        compilerPath = javaSdkType.getToolsPath(projectJdk);
         if (compilerPath == null) {
           throw new ExecutionException("Cannot determine path to 'tools.jar' library for " + projectJdk.getName() + " (" + projectJdk.getHomePath() + ")");
         }
@@ -824,6 +827,10 @@ public class BuildManager implements ApplicationComponent{
       cmdLine.addParameter("-D"+ GlobalOptions.GENERATE_CLASSPATH_INDEX_OPTION +"=" + shouldGenerateIndex);
     }
     cmdLine.addParameter("-D"+ GlobalOptions.COMPILE_PARALLEL_OPTION +"=" + Boolean.toString(config.PARALLEL_COMPILATION));
+
+    if (Boolean.TRUE.equals(Boolean.valueOf(System.getProperty("java.net.preferIPv4Stack", "false")))) {
+      cmdLine.addParameter("-Djava.net.preferIPv4Stack=true");
+    }
 
     boolean isProfilingMode = false;
     final String additionalOptions = config.COMPILER_PROCESS_ADDITIONAL_VM_OPTIONS;

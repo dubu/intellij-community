@@ -221,7 +221,7 @@ public class CompileDriver {
       scope = addAdditionalRoots(scope, ALL_EXCEPT_SOURCE_PROCESSING);
     }
 
-    final CompilerTask task = new CompilerTask(myProject, "Classes up-to-date check", true, false);
+    final CompilerTask task = new CompilerTask(myProject, "Classes up-to-date check", true, false, false);
     final DependencyCache cache = useOutOfProcessBuild()? null : createDependencyCache();
     final CompileContextImpl compileContext = new CompileContextImpl(myProject, task, scope, cache, true, false);
 
@@ -630,7 +630,7 @@ public class CompileDriver {
 
     final String contentName =
       forceCompile ? CompilerBundle.message("compiler.content.name.compile") : CompilerBundle.message("compiler.content.name.make");
-    final CompilerTask compileTask = new CompilerTask(myProject, contentName, ApplicationManager.getApplication().isUnitTestMode(), true);
+    final CompilerTask compileTask = new CompilerTask(myProject, contentName, ApplicationManager.getApplication().isUnitTestMode(), true, true);
 
     StatusBar.Info.set("", myProject, "Compiler");
     if (useExtProcessBuild) {
@@ -671,8 +671,12 @@ public class CompileDriver {
             if (message != null) {
               compileContext.addMessage(message);
             }
-            if (!executeCompileTasks(compileContext, true)) {
-              COMPILE_SERVER_BUILD_STATUS.set(compileContext, ExitStatus.CANCELLED);
+
+            final boolean beforeTasksOk = executeCompileTasks(compileContext, true);
+
+            final int errorCount = compileContext.getMessageCount(CompilerMessageCategory.ERROR);
+            if (!beforeTasksOk || errorCount > 0) {
+              COMPILE_SERVER_BUILD_STATUS.set(compileContext, errorCount > 0? ExitStatus.ERRORS : ExitStatus.CANCELLED);
               return;
             }
 
@@ -698,7 +702,9 @@ public class CompileDriver {
               }
               if (!executeCompileTasks(compileContext, false)) {
                 COMPILE_SERVER_BUILD_STATUS.set(compileContext, ExitStatus.CANCELLED);
-                return;
+              }
+              if (compileContext.getMessageCount(CompilerMessageCategory.ERROR) > 0) {
+                COMPILE_SERVER_BUILD_STATUS.set(compileContext, ExitStatus.ERRORS);
               }
             }
           }
@@ -708,7 +714,7 @@ public class CompileDriver {
           finally {
             CompilerCacheManager.getInstance(myProject).flushCaches();
 
-            final long duration = notifyCompilationCompleted(compileContext, callback, COMPILE_SERVER_BUILD_STATUS.get(compileContext));
+            final long duration = notifyCompilationCompleted(compileContext, callback, COMPILE_SERVER_BUILD_STATUS.get(compileContext), true);
             CompilerUtil.logDuration(
               "\tCOMPILATION FINISHED (BUILD PROCESS); Errors: " +
               compileContext.getMessageCount(CompilerMessageCategory.ERROR) +
@@ -716,15 +722,6 @@ public class CompileDriver {
               compileContext.getMessageCount(CompilerMessageCategory.WARNING),
               duration
             );
-
-            // refresh on output roots is required in order for the order enumerator to see all roots via VFS
-            final Set<File> outputs = new HashSet<File>();
-            for (final String path : CompilerPathsEx.getOutputPaths(ModuleManager.getInstance(myProject).getModules())) {
-              outputs.add(new File(path));
-            }
-            if (!outputs.isEmpty()) {
-              LocalFileSystem.getInstance().refreshIoFiles(outputs, true, false, null);
-            }
           }
         }
       };
@@ -836,7 +833,7 @@ public class CompileDriver {
         if (!myProject.isDisposed()) {
           writeStatus(new CompileStatus(CompilerConfigurationImpl.DEPENDENCY_FORMAT_VERSION, wereExceptions, vfsTimestamp), compileContext);
         }
-        final long duration = notifyCompilationCompleted(compileContext, callback, status);
+        final long duration = notifyCompilationCompleted(compileContext, callback, status, false);
         CompilerUtil.logDuration(
           "\tCOMPILATION FINISHED; Errors: " +
           compileContext.getMessageCount(CompilerMessageCategory.ERROR) +
@@ -849,8 +846,24 @@ public class CompileDriver {
   }
 
   /** @noinspection SSBasedInspection*/
-  private long notifyCompilationCompleted(final CompileContextImpl compileContext, final CompileStatusNotification callback, final ExitStatus _status) {
+  private long notifyCompilationCompleted(final CompileContextImpl compileContext,
+                                          final CompileStatusNotification callback,
+                                          final ExitStatus _status,
+                                          final boolean refreshOutputRoots) {
     final long duration = System.currentTimeMillis() - compileContext.getStartCompilationStamp();
+    if (refreshOutputRoots) {
+      // refresh on output roots is required in order for the order enumerator to see all roots via VFS
+      final Set<File> outputs = new HashSet<File>();
+      for (final String path : CompilerPathsEx.getOutputPaths(ModuleManager.getInstance(myProject).getModules())) {
+        outputs.add(new File(path));
+      }
+      if (!outputs.isEmpty()) {
+        final ProgressIndicator indicator = compileContext.getProgressIndicator();
+        indicator.setText("Synchronizing output directories...");
+        LocalFileSystem.getInstance().refreshIoFiles(outputs, false, false, null);
+        indicator.setText("");
+      }
+    }
     SwingUtilities.invokeLater(new Runnable() {
       public void run() {
         int errorCount = 0;
@@ -2259,8 +2272,7 @@ public class CompileDriver {
   }
 
   public void executeCompileTask(final CompileTask task, final CompileScope scope, final String contentName, final Runnable onTaskFinished) {
-    final CompilerTask progressManagerTask =
-      new CompilerTask(myProject, contentName, false, false);
+    final CompilerTask progressManagerTask = new CompilerTask(myProject, contentName, false, false, true);
     final CompileContextImpl compileContext = new CompileContextImpl(myProject, progressManagerTask, scope, null, false, false);
 
     FileDocumentManager.getInstance().saveAllDocuments();

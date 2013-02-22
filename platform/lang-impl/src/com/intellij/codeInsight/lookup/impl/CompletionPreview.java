@@ -15,7 +15,10 @@
  */
 package com.intellij.codeInsight.lookup.impl;
 
-import com.intellij.codeInsight.lookup.*;
+import com.intellij.codeInsight.lookup.LookupElement;
+import com.intellij.codeInsight.lookup.LookupElementPresentation;
+import com.intellij.codeInsight.lookup.LookupEvent;
+import com.intellij.codeInsight.lookup.LookupListener;
 import com.intellij.ide.ui.UISettings;
 import com.intellij.openapi.Disposable;
 import com.intellij.openapi.application.ApplicationManager;
@@ -27,17 +30,13 @@ import com.intellij.openapi.editor.impl.IterationState;
 import com.intellij.openapi.editor.markup.TextAttributes;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.Key;
-import com.intellij.openapi.util.Pair;
-import com.intellij.openapi.util.TextRange;
 import com.intellij.ui.JBColor;
-import com.intellij.util.containers.FList;
 import com.intellij.util.ui.UIUtil;
 import com.intellij.util.ui.update.MergingUpdateQueue;
 import com.intellij.util.ui.update.Update;
 
 import java.awt.*;
 import java.awt.image.BufferedImage;
-import java.util.ArrayList;
 
 /**
  * @author peter
@@ -82,8 +81,18 @@ public class CompletionPreview implements Disposable {
   }
 
   private void updatePreview() {
+    // don't show preview for now, show dotted border instead
+    /*
+    final EditorImpl editor = getEditorImpl();
+    editor.setCustomImage(null);
+    repaintCaretLine();
+
     LookupElement item = myLookup.getCurrentItem();
     if (item == null) {
+      return;
+    }
+
+    if (editor.getSelectionModel().hasSelection() || editor.getSelectionModel().hasBlockSelection()) {
       return;
     }
 
@@ -103,11 +112,11 @@ public class CompletionPreview implements Disposable {
       prefixLength = arrayList.get(arrayList.size() - 1).getEndOffset();
     }
 
-    final EditorImpl editor = getEditorImpl();
-    editor.setCustomImage(null);
+
     BufferedImage previewImage = createPreviewImage(text.substring(prefixLength));
     editor.setCustomImage(Pair.create(getCaretPoint(), previewImage));
     repaintCaretLine();
+    */
   }
 
   @Override

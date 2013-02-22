@@ -2,13 +2,16 @@ package org.jetbrains.plugins.javaFX.fxml;
 
 import com.intellij.codeInsight.daemon.Validator;
 import com.intellij.psi.PsiElement;
-import com.intellij.psi.xml.*;
+import com.intellij.psi.xml.XmlDocument;
+import com.intellij.psi.xml.XmlFile;
+import com.intellij.psi.xml.XmlTag;
 import com.intellij.util.ArrayUtil;
 import com.intellij.xml.XmlElementDescriptor;
 import com.intellij.xml.XmlNSDescriptor;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.plugins.javaFX.fxml.descriptors.JavaFxClassBackedElementDescriptor;
+import org.jetbrains.plugins.javaFX.fxml.descriptors.JavaFxDefaultPropertyElementDescriptor;
 
 /**
 * User: anna
@@ -22,19 +25,17 @@ public class JavaFXNSDescriptor implements XmlNSDescriptor, Validator<XmlDocumen
   public XmlElementDescriptor getElementDescriptor(@NotNull XmlTag tag) {
     final String name = tag.getName();
 
-    if (JavaFxPsiUtil.isClassTag(name)) {
-      return new JavaFxClassBackedElementDescriptor(name, tag);
+    if (tag.getName().equals(FxmlConstants.FX_ROOT)) {
+      return new JavaFxDefaultPropertyElementDescriptor(name, tag);
     }
-    else {
-      final XmlTag parentTag = tag.getParentTag();
-      if (parentTag != null) {
-        final XmlElementDescriptor descriptor = parentTag.getDescriptor();
-        if (descriptor != null) {
-          return descriptor.getElementDescriptor(tag, parentTag);
-        }
+    final XmlTag parentTag = tag.getParentTag();
+    if (parentTag != null) {
+      final XmlElementDescriptor descriptor = parentTag.getDescriptor();
+      if (descriptor != null) {
+        return descriptor.getElementDescriptor(tag, parentTag);
       }
     }
-    return null;
+    return new JavaFxClassBackedElementDescriptor(name, tag);
   }
 
   @NotNull

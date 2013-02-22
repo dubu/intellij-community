@@ -249,14 +249,14 @@ public class MavenServerManager extends RemoteObjectWrapper<MavenServer> impleme
         SimpleJavaParameters params = createJavaParameters();
         Sdk sdk = params.getJdk();
 
-        final GeneralCommandLine commandLine = JdkUtil.setupJVMCommandLine(
-          ((JavaSdkType)sdk.getSdkType()).getVMExecutablePath(sdk), params, false);
-        final OSProcessHandler processHandler = new OSProcessHandler(commandLine.createProcess(), commandLine.getCommandLineString()) {
-          @Override
-          public Charset getCharset() {
-            return commandLine.getCharset();
-          }
-        };
+        GeneralCommandLine commandLine =
+          JdkUtil.setupJVMCommandLine(((JavaSdkType)sdk.getSdkType()).getVMExecutablePath(sdk), params, false);
+
+        OSProcessHandler processHandler =
+          new OSProcessHandler(commandLine.createProcess(), commandLine.getCommandLineString(), commandLine.getCharset());
+
+        processHandler.setShouldDestroyProcessRecursively(false);
+
         return processHandler;
       }
     };
@@ -391,14 +391,14 @@ public class MavenServerManager extends RemoteObjectWrapper<MavenServer> impleme
 
   public static MavenServerSettings convertSettings(MavenGeneralSettings settings) {
     MavenServerSettings result = new MavenServerSettings();
-    result.setLoggingLevel(settings.getLoggingLevel().getLevel());
+    result.setLoggingLevel(settings.getOutputLevel().getLevel());
     result.setOffline(settings.isWorkOffline());
     result.setMavenHome(settings.getEffectiveMavenHome());
     result.setUserSettingsFile(settings.getEffectiveUserSettingsIoFile());
     result.setGlobalSettingsFile(settings.getEffectiveGlobalSettingsIoFile());
     result.setLocalRepository(settings.getEffectiveLocalRepository());
     result.setPluginUpdatePolicy(settings.getPluginUpdatePolicy().getServerPolicy());
-    result.setSnapshotUpdatePolicy(settings.getSnapshotUpdatePolicy().getServerPolicy());
+    result.setSnapshotUpdatePolicy(settings.isAlwaysUpdateSnapshots() ? MavenServerSettings.UpdatePolicy.ALWAYS_UPDATE : MavenServerSettings.UpdatePolicy.DO_NOT_UPDATE);
     return result;
   }
 
