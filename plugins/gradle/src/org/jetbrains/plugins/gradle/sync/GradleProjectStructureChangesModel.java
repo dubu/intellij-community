@@ -5,6 +5,7 @@ import com.intellij.util.containers.ContainerUtilRt;
 import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 import org.jetbrains.annotations.TestOnly;
+import org.jetbrains.plugins.gradle.autoimport.GradleAutoImporter;
 import org.jetbrains.plugins.gradle.config.PlatformFacade;
 import org.jetbrains.plugins.gradle.diff.GradleChangesCalculationContext;
 import org.jetbrains.plugins.gradle.diff.GradleProjectStructureChange;
@@ -34,6 +35,7 @@ public class GradleProjectStructureChangesModel {
     new AtomicReference<Set<GradleProjectStructureChange>>(new HashSet<GradleProjectStructureChange>());
 
   private final AtomicReference<GradleProject>                         myGradleProject  = new AtomicReference<GradleProject>();
+  private final Collection<GradleProjectStructureChangesPreProcessor>  myPreProcessors  = ContainerUtilRt.createEmptyCOWList();
   private final Collection<GradleProjectStructureChangesPostProcessor> myPostProcessors = ContainerUtilRt.createEmptyCOWList();
 
   @NotNull private final GradleStructureChangesCalculator<GradleProject, Project> myChangesCalculator;
@@ -45,6 +47,8 @@ public class GradleProjectStructureChangesModel {
                                             @NotNull GradleStructureChangesCalculator<GradleProject, Project> changesCalculator,
                                             @NotNull PlatformFacade platformFacade,
                                             @NotNull GradleLibraryPathTypeMapper mapper,
+                                            @NotNull GradleDuplicateLibrariesPreProcessor duplicateLibrariesPreProcessor,
+                                            @NotNull GradleAutoImporter autoImporter,
                                             @NotNull GradleMovedJarsPostProcessor movedJarsPostProcessor,
                                             @NotNull GradleOutdatedLibraryVersionPostProcessor changedLibraryVersionPostProcessor)
   {
@@ -52,8 +56,14 @@ public class GradleProjectStructureChangesModel {
     myChangesCalculator = changesCalculator;
     myPlatformFacade = platformFacade;
     myLibraryPathTypeMapper = mapper;
+    myPreProcessors.add(duplicateLibrariesPreProcessor);
+    myPostProcessors.add(autoImporter);
     myPostProcessors.add(movedJarsPostProcessor);
     myPostProcessors.add(changedLibraryVersionPostProcessor);
+  }
+
+  public void update(@NotNull GradleProject gradleProject) {
+    update(gradleProject, false);
   }
 
   /**
@@ -72,11 +82,17 @@ public class GradleProjectStructureChangesModel {
    * <b>Note:</b> it's very important that the listeners are notified <b>after</b> the actual state change, i.e. {@link #getChanges()}
    * during the update returns up-to-date data.
    *
-   * @param gradleProject  gradle project to sync with
+   * @param gradleProject                gradle project to sync with
+   * @param onIdeProjectStructureChange  a flag which identifies if current update is triggered by ide project structure
+   *                                     change (an alternative is a manual project structure changes refresh implied by a user)
    */
-  public void update(@NotNull GradleProject gradleProject) {
-    myGradleProject.set(gradleProject);
-    final GradleChangesCalculationContext context = getCurrentChangesContext(gradleProject);
+  public void update(@NotNull GradleProject gradleProject, boolean onIdeProjectStructureChange) {
+    GradleProject projectToUse = gradleProject;
+    for (GradleProjectStructureChangesPreProcessor preProcessor : myPreProcessors) {
+      projectToUse = preProcessor.preProcess(projectToUse, myProject);
+    }    
+    myGradleProject.set(projectToUse);
+    final GradleChangesCalculationContext context = getCurrentChangesContext(projectToUse, onIdeProjectStructureChange);
     if (!context.hasNewChanges()) {
       return;
     }
@@ -93,7 +109,13 @@ public class GradleProjectStructureChangesModel {
   public GradleProject getGradleProject() {
     return myGradleProject.get();
   }
-  
+
+  @NotNull
+  @TestOnly
+  public Collection<GradleProjectStructureChangesPreProcessor> getPreProcessors() {
+    return myPreProcessors;
+  }
+
   @NotNull
   @TestOnly
   public Collection<GradleProjectStructureChangesPostProcessor> getPostProcessors() {
@@ -112,12 +134,14 @@ public class GradleProjectStructureChangesModel {
   }
 
   @NotNull
-  public GradleChangesCalculationContext getCurrentChangesContext(@NotNull GradleProject gradleProject) {
+  public GradleChangesCalculationContext getCurrentChangesContext(@NotNull GradleProject gradleProject,
+                                                                  boolean onIdeProjectStructureChange)
+  {
     GradleChangesCalculationContext context
       = new GradleChangesCalculationContext(myChanges.get(), myPlatformFacade, myLibraryPathTypeMapper);
     myChangesCalculator.calculate(gradleProject, myProject, context);
     for (GradleProjectStructureChangesPostProcessor processor : myPostProcessors) {
-      processor.processChanges(context.getCurrentChanges(), myProject);
+      processor.processChanges(context.getCurrentChanges(), myProject, onIdeProjectStructureChange);
     }
     return context;
   }

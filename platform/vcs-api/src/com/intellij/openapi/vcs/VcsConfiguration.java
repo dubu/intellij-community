@@ -90,6 +90,10 @@ public final class VcsConfiguration implements PersistentStateComponent<Element>
   public boolean SHOW_DIRTY_RECURSIVELY = false;
   public boolean LIMIT_HISTORY = true;
   public int MAXIMUM_HISTORY_ROWS = 1000;
+  public String UPDATE_FILTER_SCOPE_NAME;
+  public boolean USE_COMMIT_MESSAGE_MARGIN = false;
+  public int COMMIT_MESSAGE_MARGIN_SIZE = 72;
+  public boolean WRAP_WHEN_TYPING_REACHES_RIGHT_MARGIN = false;
 
   public enum StandardOption {
     ADD(VcsBundle.message("vcs.command.name.add")),
@@ -144,6 +148,7 @@ public final class VcsConfiguration implements PersistentStateComponent<Element>
   public String ACTIVE_VCS_NAME;
   public boolean UPDATE_GROUP_BY_PACKAGES = false;
   public boolean UPDATE_GROUP_BY_CHANGELIST = false;
+  public boolean UPDATE_FILTER_BY_SCOPE = false;
   public boolean SHOW_FILE_HISTORY_AS_TREE = false;
   public float FILE_HISTORY_SPLITTER_PROPORTION = 0.6f;
   private static final int MAX_STORED_MESSAGES = 25;

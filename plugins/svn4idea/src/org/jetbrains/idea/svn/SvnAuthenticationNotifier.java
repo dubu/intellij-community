@@ -48,7 +48,6 @@ import org.tmatesoft.svn.core.SVNURL;
 import org.tmatesoft.svn.core.auth.SVNAuthentication;
 import org.tmatesoft.svn.core.internal.util.SVNURLUtil;
 import org.tmatesoft.svn.core.wc.SVNRevision;
-import org.tmatesoft.svn.core.wc.SVNWCClient;
 
 import javax.swing.*;
 import java.awt.*;
@@ -147,7 +146,7 @@ public class SvnAuthenticationNotifier extends GenericNotifierImpl<SvnAuthentica
 
   private void onStateChangedToSuccess(final AuthenticationRequest obj) {
     myCopiesPassiveResults.put(getKey(obj), true);
-    myVcs.invokeRefreshSvnRoots(false);
+    myVcs.invokeRefreshSvnRoots();
 
     final List<SVNURL> outdatedRequests = new LinkedList<SVNURL>();
     final Collection<SVNURL> keys = getAllCurrentKeys();
@@ -351,7 +350,7 @@ public class SvnAuthenticationNotifier extends GenericNotifierImpl<SvnAuthentica
     }
     SvnInteractiveAuthenticationProvider.clearCallState();
     try {
-      new SVNWCClient(manager, configuration.getOptions(project)).doInfo(url, SVNRevision.UNDEFINED, SVNRevision.HEAD);
+      SvnVcs.getInstance(project).createWCClient(manager).doInfo(url, SVNRevision.UNDEFINED, SVNRevision.HEAD);
     } catch (SVNAuthenticationException e) {
       log(e);
       return false;

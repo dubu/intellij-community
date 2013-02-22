@@ -25,10 +25,7 @@ import com.intellij.openapi.options.Configurable;
 import com.intellij.openapi.project.Project;
 import com.intellij.openapi.util.Disposer;
 import com.intellij.openapi.util.SystemInfo;
-import com.intellij.openapi.vcs.AbstractVcs;
-import com.intellij.openapi.vcs.CommittedChangesProvider;
-import com.intellij.openapi.vcs.ProjectLevelVcsManager;
-import com.intellij.openapi.vcs.VcsKey;
+import com.intellij.openapi.vcs.*;
 import com.intellij.openapi.vcs.annotate.AnnotationProvider;
 import com.intellij.openapi.vcs.changes.ChangeProvider;
 import com.intellij.openapi.vcs.changes.CommitExecutor;
@@ -51,7 +48,6 @@ import org.zmlx.hg4idea.provider.*;
 import org.zmlx.hg4idea.provider.annotate.HgAnnotationProvider;
 import org.zmlx.hg4idea.provider.commit.HgCheckinEnvironment;
 import org.zmlx.hg4idea.provider.commit.HgCommitAndPushExecutor;
-import org.zmlx.hg4idea.provider.update.HgIntegrateEnvironment;
 import org.zmlx.hg4idea.provider.update.HgUpdateEnvironment;
 import org.zmlx.hg4idea.status.HgRemoteStatusUpdater;
 import org.zmlx.hg4idea.status.ui.HgCurrentBranchStatusUpdater;
@@ -87,7 +83,6 @@ public class HgVcs extends AbstractVcs<CommittedChangeList> {
   private final HgCheckinEnvironment checkinEnvironment;
   private final HgAnnotationProvider annotationProvider;
   private final HgUpdateEnvironment updateEnvironment;
-  private final HgIntegrateEnvironment integrateEnvironment;
   private final HgCachingCommitedChangesProvider commitedChangesProvider;
   protected final @NotNull HgPlatformFacade myPlatformFacade;
   private MessageBusConnection messageBusConnection;
@@ -111,7 +106,7 @@ public class HgVcs extends AbstractVcs<CommittedChangeList> {
   public HgVcs(Project project,
                @NotNull HgGlobalSettings globalSettings,
                @NotNull HgProjectSettings projectSettings,
-               ProjectLevelVcsManager vcsManager, HgPlatformFacade platformFacade) {
+               ProjectLevelVcsManager vcsManager, @NotNull HgPlatformFacade platformFacade) {
     super(project, VCS_NAME);
     this.globalSettings = globalSettings;
     this.projectSettings = projectSettings;
@@ -123,7 +118,6 @@ public class HgVcs extends AbstractVcs<CommittedChangeList> {
     checkinEnvironment = new HgCheckinEnvironment(project);
     annotationProvider = new HgAnnotationProvider(project);
     updateEnvironment = new HgUpdateEnvironment(project);
-    integrateEnvironment = new HgIntegrateEnvironment(project);
     commitedChangesProvider = new HgCachingCommitedChangesProvider(project, this);
     myMergeProvider = new HgMergeProvider(myProject);
     myCommitAndPushExecutor = new HgCommitAndPushExecutor(checkinEnvironment);
@@ -193,7 +187,7 @@ public class HgVcs extends AbstractVcs<CommittedChangeList> {
 
   @Override
   public UpdateEnvironment getIntegrateEnvironment() {
-    return integrateEnvironment;
+    return null;
   }
 
   @Override
@@ -401,5 +395,10 @@ public class HgVcs extends AbstractVcs<CommittedChangeList> {
 
   public static VcsKey getKey() {
     return ourKey;
+  }
+
+  @Override
+  public CheckoutProvider getCheckoutProvider() {
+    return new HgCheckoutProvider();
   }
 }

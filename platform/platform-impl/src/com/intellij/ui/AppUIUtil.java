@@ -20,16 +20,21 @@ import com.intellij.openapi.application.ApplicationManager;
 import com.intellij.openapi.application.ApplicationNamesInfo;
 import com.intellij.openapi.application.ex.ApplicationInfoEx;
 import com.intellij.openapi.application.impl.ApplicationInfoImpl;
+import com.intellij.openapi.diagnostic.Logger;
 import com.intellij.openapi.project.Project;
+import com.intellij.openapi.ui.popup.Balloon;
 import com.intellij.openapi.util.Condition;
 import com.intellij.openapi.util.SystemInfo;
 import com.intellij.openapi.util.text.StringUtil;
+import com.intellij.openapi.wm.ToolWindowManager;
 import com.intellij.util.PlatformUtils;
 import com.intellij.util.containers.ContainerUtil;
+import org.jetbrains.annotations.NonNls;
 import org.jetbrains.annotations.NotNull;
 
 import javax.swing.*;
 import java.awt.*;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.util.List;
 
@@ -37,6 +42,7 @@ import java.util.List;
  * @author yole
  */
 public class AppUIUtil {
+  private static final Logger LOG = Logger.getInstance("#com.intellij.ui.AppUIUtil");
   private static final String VENDOR_PREFIX = "jetbrains-";
 
   public static void updateWindowIcon(@NotNull Window window) {
@@ -108,5 +114,39 @@ public class AppUIUtil {
       wmClass += "-debug";
     }
     return PlatformUtils.isCommunity() ? wmClass + "-ce" : wmClass;
+  }
+
+  public static void registerBundledFonts() {
+    registerFont("/fonts/Inconsolata.ttf");
+    registerFont("/fonts/SourceCodePro-Regular.ttf");
+    registerFont("/fonts/SourceCodePro-Bold.ttf");
+  }
+
+  private static void registerFont(@NonNls String name) {
+    try {
+      InputStream is = AppUIUtil.class.getResourceAsStream(name);
+      try {
+        Font font = Font.createFont(Font.TRUETYPE_FONT, is);
+        GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
+      }
+      finally {
+        is.close();
+      }
+    }
+    catch (Exception e) {
+      LOG.error(e);
+    }
+  }
+
+  public static void hideToolWindowBalloon(@NotNull final String id, @NotNull final Project project) {
+    invokeLaterIfProjectAlive(project, new Runnable() {
+      @Override
+      public void run() {
+        Balloon balloon = ToolWindowManager.getInstance(project).getToolWindowBalloon(id);
+        if (balloon != null) {
+          balloon.hide();
+        }
+      }
+    });
   }
 }

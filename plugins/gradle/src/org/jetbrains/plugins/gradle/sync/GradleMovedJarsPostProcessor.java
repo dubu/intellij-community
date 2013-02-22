@@ -69,18 +69,24 @@ public class GradleMovedJarsPostProcessor implements GradleProjectStructureChang
   }
 
   @Override
-  public void processChanges(@NotNull final Collection<GradleProjectStructureChange> changes, @NotNull final Project project) {
+  public void processChanges(@NotNull final Collection<GradleProjectStructureChange> changes,
+                             @NotNull final Project project,
+                             boolean onIdeProjectStructureChange) {
+    if (onIdeProjectStructureChange) {
+      // Do nothing as project models modification implied by project model change event are prohibited (see IDEA-100625).
+      return;
+    }
     final Collection<MergeInfo> toMerge = buildMergeData(changes, ServiceManager.getService(project, GradleProjectStructureContext.class));
     if (toMerge == null) {
       return;
     }
-    
+
     Runnable mergeTask = new Runnable() {
       @Override
       public void run() {
         for (MergeInfo info : toMerge) {
-          myJarManager.removeJars(Collections.singleton(info.ideJar), project);
-          myJarManager.importJar(info.gradleJar, project);
+          myJarManager.removeJars(Collections.singleton(info.ideJar), project, true);
+          myJarManager.importJar(info.gradleJar, project, true);
           changes.removeAll(info.changes);
         }
       }

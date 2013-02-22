@@ -140,6 +140,22 @@ public class HgVFSListener extends VcsVFSListener {
       @Override public void run(@NotNull ProgressIndicator aProgressIndicator) {
         final ArrayList<VirtualFile> adds = new ArrayList<VirtualFile>();
         final HashMap<VirtualFile, VirtualFile> copies = new HashMap<VirtualFile, VirtualFile>(); // from -> to
+        //delete unversioned and ignored files from copy source
+        if (myProject != null) {
+          Collection<VirtualFile> unversionedAndIgnoredFiles = new ArrayList<VirtualFile>();
+          final Map<VirtualFile, Collection<VirtualFile>> sortedSourceFilesByRepos = HgUtil.sortByHgRoots(myProject, copyFromMap.values());
+          HgStatusCommand statusCommand = new HgStatusCommand(myProject);
+          statusCommand.setOnlyUntrackedTrue();
+          statusCommand.setIncludeIgnored(true);
+          for (VirtualFile repo : sortedSourceFilesByRepos.keySet()) {
+            Set<HgChange> changes = statusCommand.execute(repo);
+            for (HgChange change : changes) {
+              unversionedAndIgnoredFiles.add(change.afterFile().toFilePath().getVirtualFile());
+            }
+          }
+          copyFromMap.values().removeAll(unversionedAndIgnoredFiles);
+        }
+
 
         // separate adds from copies
         for (VirtualFile file : addedFiles) {
@@ -189,16 +205,22 @@ public class HgVFSListener extends VcsVFSListener {
     return HgVcsMessages.message("hg4idea.remove.single.body");
   }
 
+  @Override
+  protected VcsDeleteType needConfirmDeletion(final VirtualFile file) {
+    return ChangeListManagerImpl.getInstanceImpl(myProject).getUnversionedFiles().contains(file)
+           ? VcsDeleteType.IGNORE
+           : VcsDeleteType.CONFIRM;
+  }
+
   protected void executeDelete() {
     final List<FilePath> filesToDelete = new ArrayList<FilePath>(myDeletedWithoutConfirmFiles);
     final List<FilePath> filesToConfirmDeletion = new ArrayList<FilePath>(myDeletedFiles);
     myDeletedWithoutConfirmFiles.clear();
     myDeletedFiles.clear();
 
-    // skip unversioned files and files which are not under Mercurial
-    final ChangeListManagerImpl changeListManager = ChangeListManagerImpl.getInstanceImpl(myProject);
-    skipUnversionedAndNotUnderHg(changeListManager, filesToDelete);
-    skipUnversionedAndNotUnderHg(changeListManager, filesToConfirmDeletion);
+    // skip files which are not under Mercurial
+    skipNotUnderHg(filesToDelete);
+    skipNotUnderHg(filesToConfirmDeletion);
 
     // newly added files (which were added to the repo but never committed) should be removed from the VCS,
     // but without user confirmation.
@@ -241,16 +263,16 @@ public class HgVFSListener extends VcsVFSListener {
     }.queue();
   }
 
-    /**
-     * Changes the given collection of files by filtering out unversioned files and
-     * files which are not under Mercurial repository.
-     * @param changeListManager instance of the ChangeListManagerImpl to retrieve unversioned files from it.
-     * @param filesToFilter     files to be filtered.
-     */
-  private void skipUnversionedAndNotUnderHg(ChangeListManagerImpl changeListManager, Collection<FilePath> filesToFilter) {
+  /**
+   * Changes the given collection of files by filtering out unversioned files and
+   * files which are not under Mercurial repository.
+   *
+   * @param filesToFilter    files to be filtered.
+   */
+  private void skipNotUnderHg(Collection<FilePath> filesToFilter) {
     for (Iterator<FilePath> iter = filesToFilter.iterator(); iter.hasNext(); ) {
       final FilePath filePath = iter.next();
-      if (HgUtil.getHgRootOrNull(myProject, filePath) == null || changeListManager.isUnversioned(filePath.getVirtualFile())) {
+      if (HgUtil.getHgRootOrNull(myProject, filePath) == null) {
         iter.remove();
       }
     }

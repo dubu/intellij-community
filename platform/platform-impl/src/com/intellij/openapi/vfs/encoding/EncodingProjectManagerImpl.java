@@ -40,11 +40,11 @@ import com.intellij.openapi.roots.ProjectFileIndex;
 import com.intellij.openapi.roots.ProjectRootManager;
 import com.intellij.openapi.util.Comparing;
 import com.intellij.openapi.util.ModificationTracker;
-import com.intellij.openapi.util.Pair;
 import com.intellij.openapi.vfs.*;
 import com.intellij.openapi.vfs.newvfs.impl.VirtualFileSystemEntry;
 import com.intellij.psi.PsiDocumentManager;
 import com.intellij.psi.PsiFile;
+import com.intellij.util.Processor;
 import com.intellij.util.containers.ContainerUtil;
 import com.intellij.util.containers.HashMap;
 import com.intellij.util.ui.UIUtil;
@@ -54,6 +54,7 @@ import org.jetbrains.annotations.NotNull;
 import org.jetbrains.annotations.Nullable;
 
 import java.beans.PropertyChangeListener;
+import java.io.IOException;
 import java.nio.charset.Charset;
 import java.util.*;
 
@@ -207,7 +208,7 @@ public class EncodingProjectManagerImpl extends EncodingProjectManager {
   }
 
   @Override
-  public void setEncoding(@Nullable VirtualFile virtualFileOrDir, @Nullable Charset charset) {
+  public void setEncoding(@Nullable final VirtualFile virtualFileOrDir, @Nullable final Charset charset) {
     if (charset == null) {
       myMapping.remove(virtualFileOrDir);
     }
@@ -215,26 +216,21 @@ public class EncodingProjectManagerImpl extends EncodingProjectManager {
       myMapping.put(virtualFileOrDir, charset);
     }
     myModificationCount++;
-    reloadDir(virtualFileOrDir, charset);
+    if (virtualFileOrDir != null) {
+      virtualFileOrDir.setCharset(virtualFileOrDir.getBOM() == null ? charset : null);
+    }
+    reloadAllFilesUnder(virtualFileOrDir);
   }
 
-  private static void setAndSaveOrReload(@NotNull VirtualFile virtualFileOrDir, Charset charset) {
-    virtualFileOrDir.setCharset(charset);
-    saveOrReload(virtualFileOrDir);
+  private static void clearAndReload(@NotNull VirtualFile virtualFileOrDir) {
+    virtualFileOrDir.setCharset(null);
+    reload(virtualFileOrDir);
   }
 
-  private static void saveOrReload(@NotNull VirtualFile virtualFile) {
+  private static void reload(@NotNull VirtualFile virtualFile) {
     FileDocumentManager documentManager = FileDocumentManager.getInstance();
-    Document document = documentManager.getDocument(virtualFile);
-    if (documentManager.isFileModified(virtualFile)) {
-      if (document != null) {
-        documentManager.saveDocument(document);
-      }
-    }
-    else {
-      ((VirtualFileListener)documentManager)
-        .contentsChanged(new VirtualFileEvent(null, virtualFile, virtualFile.getName(), virtualFile.getParent()));
-    }
+    ((VirtualFileListener)documentManager)
+      .contentsChanged(new VirtualFileEvent(null, virtualFile, virtualFile.getName(), virtualFile.getParent()));
   }
 
   @Override
@@ -261,72 +257,112 @@ public class EncodingProjectManagerImpl extends EncodingProjectManager {
   }
 
   @Override
-  public void setMapping(@NotNull final Map<VirtualFile, Charset> result) {
+  public void setMapping(@NotNull final Map<VirtualFile, Charset> mapping) {
     ApplicationManager.getApplication().assertIsDispatchThread();
-    final Map<VirtualFile, Charset> map = new HashMap<VirtualFile, Charset>(result.size());
-    ProjectFileIndex fileIndex = ProjectRootManager.getInstance(myProject).getFileIndex();
-    for (Map.Entry<VirtualFile, Charset> entry : result.entrySet()) {
-      VirtualFile virtualFile = entry.getKey();
-      Charset charset = entry.getValue();
-      if (virtualFile != null && !fileIndex.isInContent(virtualFile)) {
-        continue;
-      }
-      Pair<Charset, String> check = virtualFile == null || virtualFile.isDirectory() ? null : ChooseFileEncodingAction.checkCanReload(virtualFile);
-      String failReason = check == null ? null : check.second;
-      boolean enabled = failReason == null;
-      if (!enabled) {
-        continue;  // file became autodetected, exclude from explicitly specified
-      }
-      map.put(virtualFile, charset);
-    }
+    FileDocumentManager.getInstance().saveAllDocuments();  // consider all files as unmodified
+    final Map<VirtualFile, Charset> newMap = new HashMap<VirtualFile, Charset>(mapping.size());
+    final Map<VirtualFile, Charset> oldMap = new HashMap<VirtualFile, Charset>(myMapping);
 
-    final Map<VirtualFile, Charset> oldMapping = new HashMap<VirtualFile, Charset>(myMapping);
-    myMapping.clear();
-    myMapping.putAll(map);
-
-    ProgressManager.getInstance().runProcessWithProgressSynchronously(new Runnable() {
+    // ChangeFileEncodingAction should not start progress "reload files..."
+    suppressReloadDuring(new Runnable() {
       @Override
       public void run() {
-        Set<VirtualFile> changed = new HashSet<VirtualFile>(map.keySet());
-        changed.addAll(oldMapping.keySet());
-        for (VirtualFile changedFile : changed) {
-          Charset newCharset = map.get(changedFile);
-          Charset oldCharset = oldMapping.get(changedFile);
-          if (!Comparing.equal(newCharset, oldCharset)) {
-            reloadDir(changedFile, newCharset);
+        ProjectFileIndex fileIndex = ProjectRootManager.getInstance(myProject).getFileIndex();
+        for (Map.Entry<VirtualFile, Charset> entry : mapping.entrySet()) {
+          VirtualFile virtualFile = entry.getKey();
+          Charset charset = entry.getValue();
+          if (virtualFile != null) {
+            if (!fileIndex.isInContent(virtualFile)) continue;
+            if (!virtualFile.isDirectory() && !Comparing.equal(charset, oldMap.get(virtualFile))) {
+              Document document;
+              byte[] bytes;
+              try {
+                document = FileDocumentManager.getInstance().getDocument(virtualFile);
+                if (document == null) throw new IOException();
+                bytes = virtualFile.contentsToByteArray();
+              }
+              catch (IOException e) {
+                continue;
+              }
+              // ask whether to reload/convert when in doubt
+              boolean changed = new ChangeFileEncodingAction().chosen(document, null, virtualFile, bytes, charset);
+
+              if (!changed) continue;
+            }
           }
+
+          newMap.put(virtualFile, charset);
         }
       }
-    }, "Reload Files", false, myProject);
+    });
+
+    myMapping.clear();
+    myMapping.putAll(newMap);
+
+    final Set<VirtualFile> changed = new HashSet<VirtualFile>(oldMap.keySet());
+    for (VirtualFile newFile : newMap.keySet()) {
+      if (Comparing.equal(oldMap.get(newFile), newMap.get(newFile))) changed.remove(newFile);
+    }
+
+    Set<VirtualFile> added = new HashSet<VirtualFile>(newMap.keySet());
+    added.removeAll(oldMap.keySet());
+    
+    Set<VirtualFile> removed = new HashSet<VirtualFile>(oldMap.keySet());
+    removed.removeAll(newMap.keySet());
+    
+    changed.addAll(added);
+    changed.addAll(removed);
+
+    if (!changed.isEmpty()) {
+      final Processor<VirtualFile> reloadProcessor = createChangeCharsetProcessor();
+      startReloadWithProgress(new Runnable() {
+        @Override
+        public void run() {
+          for (VirtualFile changedFile : changed) {
+            final Charset newCharset = newMap.get(changedFile);
+            Charset oldCharset = oldMap.get(changedFile);
+            if (!Comparing.equal(newCharset, oldCharset)) {
+              processSubFiles(changedFile, reloadProcessor);
+            }
+          }
+        }
+      });
+    }
 
     myModificationCount++;
   }
 
-  private void reloadDir(VirtualFile file, final Charset newCharset) {
+  private static Processor<VirtualFile> createChangeCharsetProcessor() {
+    return new Processor<VirtualFile>() {
+      @Override
+      public boolean process(final VirtualFile file) {
+        if (!(file instanceof VirtualFileSystemEntry)) return false;
+        Document cachedDocument = FileDocumentManager.getInstance().getCachedDocument(file);
+        if (cachedDocument == null) return true;
+        ProgressManager.progress("Reloading files...", file.getPresentableUrl());
+        UIUtil.invokeLaterIfNeeded(new Runnable() {
+          @Override
+          public void run() {
+            clearAndReload(file);
+          }
+        });
+        return true;
+      }
+    };
+  }
+
+  private boolean processSubFiles(@Nullable("null means in the project") VirtualFile file, @NotNull final Processor<VirtualFile> processor) {
     if (file == null) {
       for (VirtualFile virtualFile : ProjectRootManager.getInstance(myProject).getContentRoots()) {
-        reloadDir(virtualFile, newCharset);
+        if (!processSubFiles(virtualFile, processor)) return false;
       }
-      return;
+      return true;
     }
 
-    VfsUtilCore.visitChildrenRecursively(file, new VirtualFileVisitor() {
+    return VirtualFileVisitor.CONTINUE == VfsUtilCore.visitChildrenRecursively(file, new VirtualFileVisitor() {
       @Override
       public boolean visitFile(@NotNull final VirtualFile file) {
-        if (!(file instanceof VirtualFileSystemEntry)) return false;
-        if (!file.isCharsetSet()) return true;
-        Charset oldCharset = file.getCharset();
-
-        if (!Comparing.equal(newCharset, oldCharset)) {
-          ProgressManager.progress("Reloading files...", file.getPresentableUrl());
-          UIUtil.invokeLaterIfNeeded(new Runnable() {
-            @Override
-            public void run() {
-              setAndSaveOrReload(file, newCharset);
-            }
-          });
-        }
-        return true;
+        return processor.process(file);
       }
     });
   }
@@ -346,7 +382,62 @@ public class EncodingProjectManagerImpl extends EncodingProjectManager {
 
   @Override
   public void setUseUTFGuessing(final VirtualFile virtualFile, final boolean useUTFGuessing) {
-    myUseUTFGuessing = useUTFGuessing;
+    if (myUseUTFGuessing != useUTFGuessing) {
+      myUseUTFGuessing = useUTFGuessing;
+      reloadAllFilesUnder(null);
+    }
+  }
+
+  private static final ThreadLocal<Boolean> SUPPRESS_RELOAD = new ThreadLocal<Boolean>();
+  static void suppressReloadDuring(@NotNull Runnable action) {
+    Boolean old = SUPPRESS_RELOAD.get();
+    try {
+      SUPPRESS_RELOAD.set(true);
+      action.run();
+    }
+    finally {
+      SUPPRESS_RELOAD.set(old);
+    }
+  }
+
+  private boolean startReloadWithProgress(@NotNull final Runnable reloadAction) {
+    Boolean suppress = SUPPRESS_RELOAD.get();
+    if (suppress != null && suppress) return false;
+    FileDocumentManager.getInstance().saveAllDocuments();  // consider all files as unmodified
+    return ProgressManager.getInstance().runProcessWithProgressSynchronously(new Runnable() {
+      @Override
+      public void run() {
+        suppressReloadDuring(reloadAction);
+      }
+    }, "Reload Files", false, myProject);
+  }
+
+  private void reloadAllFilesUnder(final VirtualFile root) {
+    startReloadWithProgress(new Runnable() {
+      @Override
+      public void run() {
+        processSubFiles(root, new Processor<VirtualFile>() {
+          @Override
+          public boolean process(final VirtualFile file) {
+            if (!(file instanceof VirtualFileSystemEntry)) return true;
+            Document cachedDocument = FileDocumentManager.getInstance().getCachedDocument(file);
+            if (cachedDocument != null) {
+              ProgressManager.progress("Reloading file...", file.getPresentableUrl());
+              UIUtil.invokeLaterIfNeeded(new Runnable() {
+                @Override
+                public void run() {
+                  reload(file);
+                }
+              });
+            }
+            else if (file.isCharsetSet()) {
+              file.setCharset(null);
+            }
+            return true;
+          }
+        });
+      }
+    });
   }
 
   @Override

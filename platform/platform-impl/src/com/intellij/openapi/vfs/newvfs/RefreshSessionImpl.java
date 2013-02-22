@@ -25,9 +25,11 @@ import com.intellij.openapi.vfs.ex.VirtualFileManagerEx;
 import com.intellij.openapi.vfs.impl.local.FileWatcher;
 import com.intellij.openapi.vfs.impl.local.LocalFileSystemImpl;
 import com.intellij.openapi.vfs.newvfs.events.VFileEvent;
+import com.intellij.openapi.vfs.newvfs.persistent.PersistentFS;
 import com.intellij.openapi.vfs.newvfs.persistent.RefreshWorker;
 import com.intellij.util.concurrency.Semaphore;
 import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
 
 import java.util.ArrayList;
 import java.util.Collection;
@@ -56,23 +58,20 @@ public class RefreshSessionImpl extends RefreshSession {
   private volatile RefreshWorker myWorker = null;
   private volatile boolean myCancelled = false;
 
-  public RefreshSessionImpl(final boolean isAsync, final boolean recursively, final Runnable finishRunnable) {
-    this(isAsync, recursively, finishRunnable, ModalityState.NON_MODAL);
+  public RefreshSessionImpl(boolean async, boolean recursive, @Nullable Runnable finishRunnable) {
+    this(async, recursive, finishRunnable, ModalityState.NON_MODAL);
   }
 
-  public RefreshSessionImpl(final boolean isAsync, final boolean recursively, final Runnable finishRunnable, ModalityState modalityState) {
-    myIsRecursive = recursively;
+  public RefreshSessionImpl(boolean async, boolean recursive, @Nullable Runnable finishRunnable, @NotNull ModalityState modalityState) {
+    myIsAsync = async;
+    myIsRecursive = recursive;
     myFinishRunnable = finishRunnable;
-    myIsAsync = isAsync;
     myModalityState = modalityState;
   }
 
-  public RefreshSessionImpl(final List<VFileEvent> events) {
-    myIsAsync = false;
-    myIsRecursive = false;
-    myFinishRunnable = null;
-    myEvents = new ArrayList<VFileEvent>(events);
-    myModalityState = ModalityState.NON_MODAL;
+  public RefreshSessionImpl(@NotNull List<VFileEvent> events) {
+    this(false, false, null, ModalityState.NON_MODAL);
+    myEvents.addAll(events);
   }
 
   @Override
@@ -187,7 +186,7 @@ public class RefreshSessionImpl extends RefreshSession {
     manager.fireBeforeRefreshStart(myIsAsync);
     try {
       while (!myWorkQueue.isEmpty() || !myEvents.isEmpty()) {
-        ManagingFS.getInstance().processEvents(mergeEventsAndReset());
+        PersistentFS.getInstance().processEvents(mergeEventsAndReset());
         scan();
       }
     }

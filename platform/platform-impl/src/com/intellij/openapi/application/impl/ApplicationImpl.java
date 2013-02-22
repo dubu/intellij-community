@@ -1,5 +1,5 @@
 /*
- * Copyright 2000-2012 JetBrains s.r.o.
+ * Copyright 2000-2013 JetBrains s.r.o.
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -74,7 +74,6 @@ import org.picocontainer.MutablePicoContainer;
 import javax.swing.*;
 import java.awt.*;
 import java.io.IOException;
-import java.io.InputStream;
 import java.lang.reflect.Method;
 import java.util.List;
 import java.util.concurrent.*;
@@ -134,8 +133,9 @@ public class ApplicationImpl extends ComponentManagerImpl implements Application
     new SynchronousQueue<Runnable>(),
     new ThreadFactory() {
       int i;
+      @NotNull
       @Override
-      public Thread newThread(Runnable r) {
+      public Thread newThread(@NotNull Runnable r) {
         final int count = myAliveThreads.incrementAndGet();
         final Thread thread = new Thread(r, "ApplicationImpl pooled thread "+i++) {
           @Override
@@ -251,7 +251,7 @@ public class ApplicationImpl extends ComponentManagerImpl implements Application
           invokeLater(new Runnable() {
             @Override
             public void run() {
-              final Project project = CommandLineProcessor.processExternalCommandLine(args);
+              final Project project = CommandLineProcessor.processExternalCommandLine(args, null);
               final JFrame frame;
               if (project != null) {
                 frame = (JFrame)WindowManager.getInstance().getIdeFrame(project);
@@ -264,34 +264,21 @@ public class ApplicationImpl extends ComponentManagerImpl implements Application
           });
         }
       });
-    }
 
-    registerFont("/fonts/Inconsolata.ttf");
-    registerFont("/fonts/SourceCodePro-Regular.ttf");
-    registerFont("/fonts/SourceCodePro-Bold.ttf");
-  }
-
-  private void registerFont(@NonNls String name) {
-    if (isHeadlessEnvironment()) return;
-
-    InputStream is = null;
-    try {
-      is = getClass().getResourceAsStream(name);
-      final Font font = Font.createFont(Font.TRUETYPE_FONT, is);
-      GraphicsEnvironment.getLocalGraphicsEnvironment().registerFont(font);
-    }
-    catch (Exception e) {
-      LOG.info(e);
-    }
-    finally {
-      if (is != null) {
-        try {
-          is.close();
+      WindowsCommandLineProcessor.LISTENER = new WindowsCommandLineListener() {
+        @Override
+        public void processWindowsLauncherCommandLine(final String currentDirectory, final String commandLine) {
+          LOG.info("Received external Windows command line: current directory " + currentDirectory + ", command line " + commandLine);
+          invokeLater(new Runnable() {
+            @Override
+            public void run() {
+              final List<String> args = StringUtil.splitHonorQuotes(commandLine, ' ');
+              args.remove(0);   // process name
+              CommandLineProcessor.processExternalCommandLine(args, currentDirectory);
+            }
+          });
         }
-        catch (IOException e) {
-          LOG.error(e);
-        }
-      }
+      };
     }
   }
 
@@ -731,7 +718,6 @@ public class ApplicationImpl extends ComponentManagerImpl implements Application
   @Override
   public void invokeAndWait(@NotNull Runnable runnable, @NotNull ModalityState modalityState) {
     if (isDispatchThread()) {
-      LOG.error("invokeAndWait must not be called from event queue thread");
       runnable.run();
       return;
     }
@@ -975,6 +961,28 @@ public class ApplicationImpl extends ComponentManagerImpl implements Application
     }
   }
 
+  @Override
+  public <T, E extends Throwable> T runReadAction(@NotNull ThrowableComputable<T, E> computation) throws E {
+    if (isReadAccessAllowed()) {
+      return computation.compute();
+    }
+    else {
+      assertReadActionAllowed();
+      try {
+        myLock.readLock().lockInterruptibly();
+      }
+      catch (InterruptedException e) {
+        throw new RuntimeInterruptedException(e);
+      }
+      try {
+        return computation.compute();
+      }
+      finally {
+        myLock.readLock().unlock();
+      }
+    }
+  }
+
   private static final ThreadLocal<Boolean> exceptionalThreadWithReadAccessFlag = new ThreadLocal<Boolean>();
 
   private static boolean isExceptionalThreadWithReadAccess() {
@@ -1108,7 +1116,7 @@ public class ApplicationImpl extends ComponentManagerImpl implements Application
   public void runEdtSafeAction(@NotNull Runnable runnable) {
     Integer value = ourEdtSafe.get();
     if (value == null) {
-      value = Integer.valueOf(0);
+      value = 0;
     }
 
     ourEdtSafe.set(value + 1);

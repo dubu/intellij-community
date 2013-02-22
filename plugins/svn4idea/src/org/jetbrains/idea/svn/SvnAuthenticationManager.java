@@ -360,6 +360,7 @@ public class SvnAuthenticationManager extends DefaultSVNAuthenticationManager im
   @Override
   public void acknowledgeConnectionSuccessful(SVNURL url) {
     CommonProxy.getInstance().removeNoProxy(url.getProtocol(), url.getHost(), url.getPort());
+    SSLExceptionsHelper.removeInfo();
   }
 
   @Override
@@ -369,6 +370,7 @@ public class SvnAuthenticationManager extends DefaultSVNAuthenticationManager im
                                         SVNErrorMessage errorMessage,
                                         SVNAuthentication authentication,
                                         SVNURL url) throws SVNException {
+    SSLExceptionsHelper.removeInfo();
     CommonProxy.getInstance().removeNoProxy(url.getProtocol(), url.getHost(), url.getPort());
     boolean successSaving = false;
     myListener.getMulticaster().acknowledge(accepted, kind, realm, errorMessage, authentication);
@@ -386,6 +388,7 @@ public class SvnAuthenticationManager extends DefaultSVNAuthenticationManager im
   }
 
   public ISVNProxyManager getProxyManager(SVNURL url) throws SVNException {
+    SSLExceptionsHelper.addInfo("Accessing URL: " + url.toString());
     CommonProxy.getInstance().noProxy(url.getProtocol(), url.getHost(), url.getPort());
     // this code taken from default manager (changed for system properties reading)
     String host = url.getHost();
